@@ -1766,6 +1766,123 @@ function exitDemoMode() {
 btnDemo.addEventListener('click', startDemoMode);
 
 /* ═══════════════════════════
+   TOUCH DRAG & DROP
+   ═══════════════════════════ */
+(function() {
+  let touchSrcIdx = null;
+  let ghost = null;
+  let lastOverIdx = null;
+
+  function getThumbItems() {
+    return Array.from(thumbStrip.querySelectorAll('.thumb-item'));
+  }
+
+  function createGhost(item, touch) {
+    const rect = item.getBoundingClientRect();
+    ghost = item.cloneNode(true);
+    ghost.style.cssText = `
+      position: fixed;
+      width: ${rect.width}px;
+      opacity: 0.75;
+      pointer-events: none;
+      z-index: 9999;
+      transform: scale(1.05);
+      transition: none;
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      left: ${rect.left}px;
+      top: ${rect.top}px;
+    `;
+    document.body.appendChild(ghost);
+    return { offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top };
+  }
+
+  function moveGhost(touch, offsetX, offsetY) {
+    if (!ghost) return;
+    ghost.style.left = (touch.clientX - offsetX) + 'px';
+    ghost.style.top  = (touch.clientY - offsetY) + 'px';
+  }
+
+  function getIdxFromTouch(touch) {
+    const items = getThumbItems();
+    for (let i = 0; i < items.length; i++) {
+      const rect = items[i].getBoundingClientRect();
+      if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+          touch.clientY >= rect.top  && touch.clientY <= rect.bottom) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  function clearOverHighlight() {
+    getThumbItems().forEach(el => el.classList.remove('drag-over-left', 'drag-over-right'));
+  }
+
+  thumbStrip.addEventListener('touchstart', e => {
+    const item = e.target.closest('.thumb-item');
+    if (!item) return;
+    if (e.target.closest('.thumb-delete')) return;
+    touchSrcIdx = parseInt(item.dataset.index);
+    const touch = e.touches[0];
+    const { offsetX, offsetY } = createGhost(item, touch);
+    item.classList.add('dragging');
+
+    function onTouchMove(e) {
+      e.preventDefault();
+      const t = e.touches[0];
+      moveGhost(t, offsetX, offsetY);
+      const overIdx = getIdxFromTouch(t);
+      if (overIdx !== null && overIdx !== lastOverIdx) {
+        clearOverHighlight();
+        lastOverIdx = overIdx;
+        const items = getThumbItems();
+        const overItem = items[overIdx];
+        const rect = overItem.getBoundingClientRect();
+        overItem.classList.toggle('drag-over-left', t.clientX < rect.left + rect.width / 2);
+        overItem.classList.toggle('drag-over-right', t.clientX >= rect.left + rect.width / 2);
+      }
+    }
+
+    function onTouchEnd(e) {
+      thumbStrip.removeEventListener('touchmove', onTouchMove);
+      thumbStrip.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchend', onTouchEnd);
+
+      if (ghost) { ghost.remove(); ghost = null; }
+      item.classList.remove('dragging');
+      clearOverHighlight();
+
+      const t = e.changedTouches[0];
+      const overIdx = getIdxFromTouch(t);
+
+      if (overIdx !== null && overIdx !== touchSrcIdx) {
+        const items = getThumbItems();
+        const overItem = items[overIdx];
+        const rect = overItem.getBoundingClientRect();
+        const insertBefore = t.clientX < rect.left + rect.width / 2;
+        const moved = state.flatSlides.splice(touchSrcIdx, 1)[0];
+        let insertIdx = overIdx > touchSrcIdx ? overIdx - 1 : overIdx;
+        if (!insertBefore) insertIdx++;
+        state.flatSlides.splice(insertIdx, 0, moved);
+        rebuildSlidesFromFlat();
+        rebuildFlatSlides();
+        renderThumbs();
+        state.current = Math.min(state.current, state.flatSlides.length - 1);
+        showSlide(state.current);
+      }
+
+      touchSrcIdx = null;
+      lastOverIdx = null;
+    }
+
+    thumbStrip.addEventListener('touchmove', onTouchMove, { passive: false });
+    thumbStrip.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchend', onTouchEnd);
+  }, { passive: true });
+})();
+
+/* ═══════════════════════════
    INIT
    ═══════════════════════════ */
 loadSettings();
